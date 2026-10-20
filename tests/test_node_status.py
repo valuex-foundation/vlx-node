@@ -1,0 +1,116 @@
+import importlib.util
+import io
+import json
+from pathlib import Path
+import threading
+import unittest
+from contextlib import redirect_stdout
+from unittest.mock import patch
+from http.server import BaseHTTPRequestHandler, HTTPServer
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+class StatusTests(unittest.TestCase):
+    def test_ready_node_returns_success(self):
+        spec = importlib.util.spec_from_file_location("node_status", ROOT / "scripts/node-status.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+
+            def do_GET(self):
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(b'{"healthy":true,"checks":{}}')
+
+            def do_POST(self):
+                body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+                result = {"info.isBootstrapped": {"isBootstrapped": True},
+                          "eth_chainId": "0x15f90", "eth_blockNumber": "0xd1c0"}[body["method"]]
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(json.dumps({"result": result}).encode())
+
+        server = HTTPServer(("127.0.0.1", 0), Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            output = io.StringIO()
+            with redirect_stdout(output):
+                code = module.status(f"http://127.0.0.1:{server.server_port}")
+            self.assertEqual(code, 0)
+            self.assertIn("VLX block height: 53696", output.getvalue())
+            self.assertIn("Node ready.", output.getvalue())
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join()
+
+    def test_bootstrap_503_still_reports_both_chains(self):
+        spec = importlib.util.spec_from_file_location("node_status", ROOT / "scripts/node-status.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        seen = []
+
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+
+            def do_GET(self):
+                self.send_response(503)
+                self.end_headers()
+                self.wfile.write(json.dumps({"healthy": False, "checks": {
+                    "P": {"error": "not connected to enough stake",
+                          "message": {"networking": {"percentConnected": 0.32}}},
+                    "network": {"message": {"connectedPeers": 369}},
+                    "bootstrapped": {"error": "subnets not bootstrapped"},
+                }}).encode())
+
+            def do_POST(self):
+                body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+                seen.append(body)
+                if body["method"] == "info.isBootstrapped":
+                    self.send_response(200)
+                    content = {"result": {"isBootstrapped": False}}
+                else:
+                    self.send_response(503)
+                    content = {"error": {"message": "chain is not done bootstrapping"}}
+                self.end_headers()
+                self.wfile.write(json.dumps(content).encode())
+
+        server = HTTPServer(("127.0.0.1", 0), Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            output = io.StringIO()
+            with redirect_stdout(output):
+                code = module.status(f"http://127.0.0.1:{server.server_port}")
+            self.assertNotEqual(code, 0)
+            text = output.getvalue()
+            self.assertIn("32.00%", text)
+            self.assertIn("369", text)
+            self.assertIn("P bootstrap: false", text)
+            self.assertIn("VLX bootstrap: false", text)
+            self.assertIn("not ready", text)
+            self.assertEqual([x["params"]["chain"] for x in seen
+                              if x["method"] == "info.isBootstrapped"], ["P", module.BID])
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join()
+
+    def test_null_fields_report_not_ready_without_crashing(self):
+        spec = importlib.util.spec_from_file_location("node_status", ROOT / "scripts/node-status.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        responses = [(503, {"healthy": False, "checks": {
+            "network": {"message": None}, "P": None, "bootstrapped": None}}),
+            (200, {"result": None}), (200, {"result": None}),
+            (200, {"result": None}), (200, {"result": None})]
+        with patch.object(module, "request", side_effect=responses), redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(module.status("http://localhost"), 1)
+        self.assertIn("VLX bootstrap:", output.getvalue())
+        self.assertIn("Node not ready", output.getvalue())

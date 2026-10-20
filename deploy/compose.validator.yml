@@ -1,0 +1,7 @@
+# Existing host keys are mandatory. Never run the same identity on two hosts.
+services:
+  vlx-node:
+    environment:
+      NODE_ROLE: validator
+    volumes:
+      - ${STAKING_DIR:-./staking}:/staking:ro,Z

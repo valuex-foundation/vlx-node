@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "networkID": 1,
+  "evmChainID": 90000,
+  "blockchainID": "zNXAbLSpaqfn3PTLi6ztbeomNtj4wsa7tBxSPyvXYEKstrtsR",
+  "subnetID": "2o1i2YzX4FVfAzNHJYUnt4YFALuZNJGUvJS2nhx1zTTiGWUnZv",
+  "height": 53696,
+  "type": "unknown",
+  "compression": "none",
+  "runtimeVersion": "[Verification required: producing runtime version]",
+  "file": "vlx-l1-chain90000-height-53696-20261020-122850.tar",
+  "sizeBytes": null,
+  "sha256": "[Verification required: compute from the actual archive]"
+}

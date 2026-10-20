@@ -1,0 +1,37 @@
+name: vlx
+services:
+  vlx-node:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      args:
+        AVALANCHEGO_VERSION: ${AVALANCHEGO_VERSION:-v1.15.0}
+    environment:
+      NODE_ROLE: rpc
+      NETWORK_ID: ${NETWORK_ID:-1}
+      SUBNET_ID: ${SUBNET_ID:?Set SUBNET_ID in .env}
+      PUBLIC_IP: ${PUBLIC_IP:-}
+      HTTP_ALLOWED_HOSTS: ${HTTP_ALLOWED_HOSTS:-localhost,127.0.0.1,vlx-node}
+      HTTP_ALLOWED_ORIGINS: ${HTTP_ALLOWED_ORIGINS:-http://localhost}
+    ports:
+      - "127.0.0.1:9650:9650"
+      - "9651:9651"
+    volumes:
+      - ${DATA_DIR:-./data}/db:/data/db:Z
+      - ${DATA_DIR:-./data}/chainData:/root/.avalanchego/chainData:Z
+      - ${DATA_DIR:-./data}/logs:/data/logs:Z
+      - ${STAKING_DIR:-./staking}:/staking:Z
+      - ./config:/config:ro,z
+    healthcheck:
+      test: ["CMD", "bash", "-o", "pipefail", "-c", "curl -fsS --max-time 8 http://127.0.0.1:9650/ext/health | jq -e -s 'length == 1 and .[0].healthy == true' >/dev/null"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 300s
+    restart: unless-stopped
+    stop_grace_period: 2m
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"

@@ -1,0 +1,21 @@
+groups:
+  - name: vlx-availability
+    rules:
+      - alert: VLXScrapeFailed
+        expr: up == 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "Monitoring target unreachable; check container and network"
+      - alert: VLXHealthFailed
+        expr: vlx_health == 0 or vlx_health_probe_success == 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "Node unhealthy or health probe failed; check bootstrap status"
+      - alert: VLXRPCFailed
+        expr: vlx_rpc_block_number_probe_success == 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "eth_blockNumber probe failed"

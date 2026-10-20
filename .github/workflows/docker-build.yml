@@ -1,0 +1,75 @@
+name: docker-build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check source safety and scripts
+        run: |
+          python3 -m unittest discover -s tests -v
+          bash -n vlx-node.sh
+          for script in scripts/*.sh docker/*.sh; do bash -n "$script"; done
+          python3 scripts/check-public.py
+      - name: Validate all Compose roles
+        env:
+          SUBNET_ID: 2o1i2YzX4FVfAzNHJYUnt4YFALuZNJGUvJS2nhx1zTTiGWUnZv
+          GRAFANA_ADMIN_PASSWORD: ci-validation-only
+        run: |
+          for role in rpc validator; do
+            docker compose --env-file .env.example -f docker-compose.yml -f deploy/compose.$role.yml -f deploy/compose.monitoring.yml config --quiet
+          done
+      - name: Validate Prometheus configuration and rules
+        run: |
+          docker run --rm --entrypoint promtool \
+            -v "$PWD/monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro" \
+            -v "$PWD/monitoring/alert-rules:/etc/prometheus/rules:ro" \
+            prom/prometheus:v3.2.1 check config /etc/prometheus/prometheus.yml
+      - name: Build public source artifact
+        run: python3 scripts/package-public.py
+  linux-tests:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        os: ["ubuntu:22.04", "ubuntu:24.04", "rockylinux:9"]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run helper tests on target userspace
+        env:
+          TEST_IMAGE: ${{ matrix.os }}
+        run: |
+          docker run --rm -v "$PWD:/work" -w /work "$TEST_IMAGE" bash -c '
+            if command -v apt-get >/dev/null; then
+              apt-get update && apt-get install -y python3
+            else
+              dnf install -y python3
+            fi
+            python3 -m unittest discover -s tests -v
+            bash vlx-node.sh help
+          '
+  build:
+    needs: [validate, linux-tests]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Load pinned versions
+        run: cat versions.env >> "$GITHUB_ENV"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build node image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          push: false
+          build-args: |
+            AVALANCHEGO_VERSION=${{ env.AVALANCHEGO_VERSION }}

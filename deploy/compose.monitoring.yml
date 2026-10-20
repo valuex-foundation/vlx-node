@@ -1,0 +1,43 @@
+services:
+  prometheus:
+    image: prom/prometheus:v3.2.1
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=${PROMETHEUS_RETENTION:-15d}
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro,z
+      - ./monitoring/alert-rules:/etc/prometheus/rules:ro,z
+      - prometheus-data:/prometheus
+    ports: ["127.0.0.1:9090:9090"]
+    restart: unless-stopped
+  grafana:
+    image: grafana/grafana:11.6.0
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?Set GRAFANA_ADMIN_PASSWORD before enabling monitoring}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro,z
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro,z
+    ports: ["127.0.0.1:3000:3000"]
+    restart: unless-stopped
+  vlx-probe:
+    image: python:3.12-alpine
+    command: ["python3", "/app/probe.py"]
+    volumes: ["./monitoring/probe.py:/app/probe.py:ro,z"]
+    read_only: true
+    user: "65534:65534"
+    cap_drop: [ALL]
+    restart: unless-stopped
+  node-exporter:
+    image: prom/node-exporter:v1.9.0
+    command: ["--path.rootfs=/host", "--path.procfs=/host/proc", "--path.sysfs=/host/sys"]
+    pid: host
+    volumes: ["/:/host:ro,rslave"]
+    # Rocky SELinux: this read-only host collector needs an explicit label exception.
+    security_opt: ["label=disable"]
+    restart: unless-stopped
+volumes:
+  prometheus-data:
+  grafana-data:

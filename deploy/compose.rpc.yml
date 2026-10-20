@@ -1,0 +1,18 @@
+services:
+  vlx-node:
+    environment:
+      NODE_ROLE: rpc
+  rpc-gateway:
+    image: python:3.12-alpine
+    command: ["python3", "/app/rpc-gateway.py"]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    user: "65534:65534"
+    pids_limit: 128
+    mem_limit: 256m
+    volumes:
+      - ./scripts/rpc-gateway.py:/app/rpc-gateway.py:ro,z
+    ports:
+      - "127.0.0.1:9652:9652"
+    restart: unless-stopped
