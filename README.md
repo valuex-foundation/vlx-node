@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="docs/assets/logo-full.png" alt="ValueX" width="360">
+  <img src="docs/assets/logo-full.png" alt="ValueX">
 </p>
 
-# ValueX Chain - Node
+# ValueX Chain Node
 
 Docker Compose configuration, installation scripts and operating guides for ValueX Chain (VLX) nodes. The installation scripts target Ubuntu 22.04/24.04 LTS and Rocky Linux 9.
 
@@ -30,9 +30,9 @@ sudo bash vlx-node.sh build
 
 Both methods use the **same source package, Docker image and Compose deployment**:
 
-| Bootstrap method | Starting data | Instructions |
-| --- | --- | --- |
-| Sync from scratch | Empty database; synchronize P-Chain, then VLX | [Quickstart: sync from scratch](docs/quickstart.md#option-a-sync-from-scratch) |
+| Bootstrap method      | Starting data                                                   | Instructions                                                                           |
+| --------------------- | --------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| Sync from scratch     | Empty database; synchronize P-Chain, then VLX                   | [Quickstart: sync from scratch](docs/quickstart.md#option-a-sync-from-scratch)         |
 | Restore from snapshot | Restore `db` and `chainData`, then synchronize remaining blocks | [Quickstart: restore from snapshot](docs/quickstart.md#option-b-restore-from-snapshot) |
 
 `partial-sync-primary-network=true` skips X-Chain and C-Chain synchronization; P-Chain synchronization is still required. A snapshot can shorten initialization if it contains a compatible P-Chain database. See [bootstrapping](docs/bootstrapping.md).
