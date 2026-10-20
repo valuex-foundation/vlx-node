@@ -18,6 +18,8 @@ Run `sudo bash vlx-node.sh identity` after bootstrapping to verify the Blockchai
 
 ## Quick start
 
+For a complete Git-to-RPC walkthrough, see [RPC node deployment from a snapshot](docs/exchange-snapshot-setup.md).
+
 Obtain the source from `valuex-foundation/vlx-node` or extract a public source package. Run the following commands from the project root on your Linux server.
 
 ```bash

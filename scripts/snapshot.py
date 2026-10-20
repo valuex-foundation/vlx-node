@@ -21,7 +21,7 @@ def valid_filename(name, height):
     if not isinstance(name, str) or type(height) is not int or height < 0:
         return False
     return bool(re.fullmatch(
-        rf"vlx-l1-(?:height-{height}|chain90000-height-{height}-[0-9]{{8}}-[0-9]{{6}})\.tar",
+        rf"vlx-(?:l1-(?:height-{height}|chain90000-height-{height}-[0-9]{{8}}-[0-9]{{6}})|archive-height-{height}-[0-9]{{8}}-[0-9]{{6}})\.tar",
         name,
     ))
 
@@ -35,6 +35,28 @@ def manifest(cache):
         sums = read_checksums(cache)
         if sums.get("manifest.json") != hashlib.sha256(raw).hexdigest():
             raise ValueError("Published manifest checksum mismatch")
+        if "archive" in data:
+            height = data.get("height")
+            filename = data.get("archive")
+            digest = data.get("archiveSha256")
+            if (data.get("network") != "ValueX Chain"
+                    or type(data.get("chainId")) is not int or data["chainId"] != 90000
+                    or not valid_filename(filename, height)
+                    or data.get("format") != "tar"
+                    or type(data.get("archiveSizeBytes")) is not int or data["archiveSizeBytes"] <= 0
+                    or not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest)
+                    or data.get("contents") != ["db", "chainData"]
+                    or set(sums) != {filename, "manifest.json"}
+                    or sums.get(filename) != digest):
+                raise ValueError("Invalid generated snapshot manifest, chain ID, size or checksum")
+            # This format does not attest P-Chain identity, runtime, or pruning mode.
+            return {
+                "metadataFormat": "published-checkpoint", "blockchainID": None,
+                "subnetID": None, "height": height, "type": "unknown",
+                "compression": "none", "file": filename, "sha256": digest,
+                "sizeBytes": data["archiveSizeBytes"], "runtimeVersion": None,
+                "allowedExtraRoots": [],
+            }
         height = data.get("checkpointHeight")
         if isinstance(height, str) and re.fullmatch(r"0|[1-9][0-9]*", height):
             height = int(height)

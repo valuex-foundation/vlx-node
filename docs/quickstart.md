@@ -51,6 +51,8 @@ See [bootstrapping and progress diagnostics](bootstrapping.md). Downloading bloc
 
 ### Option B: Restore from snapshot
 
+For the complete clone, configuration, restore and exchange RPC workflow, see [RPC node deployment from a snapshot](exchange-snapshot-setup.md).
+
 Follow the [snapshot download and restoration guide](snapshot-download-and-restore.md) for storage requirements, checksum verification and safe restoration. The commands below use example host paths; ensure they match your deployment.
 
 ```bash

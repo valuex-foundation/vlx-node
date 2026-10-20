@@ -51,6 +51,14 @@ https://snapshot.valuex-foundation.com/vlx-l1-chain90000-height-53696-20261020-1
 
 See the [manifest template](snapshot-manifest.json.example). `type: unknown` is valid, but a template with missing size/checksum values is rejected by the downloader. For the schemaVersion 1 format, `SHA256SUMS` must contain exactly one line: `64-character-lowercase-SHA256  vlx-l1-chain90000-height-53696-20261020-122850.tar`, with two spaces between hash and filename. Archive entries must be rooted under `db/` and, optionally, `chainData/`. Exclude private keys, logs, absolute paths, links and device files.
 
+## Generated manifest compatibility
+
+The downloader also accepts the generated format containing `network: "ValueX Chain"`, integer `chainId: 90000`, `height`, `format: "tar"`, `archive`, `archiveSizeBytes`, `archiveSha256`, and `contents: ["db", "chainData"]`. Its `SHA256SUMS` must include exactly the archive and `manifest.json`. Both metadata and archive hashes are checked; the archive size and filename height must match.
+
+Timestamped names such as `vlx-archive-height-53696-20261020-154411.tar` are supported. The word `archive` in a filename does not prove historical-state availability. This format does not identify the Blockchain ID, Subnet ID or producing runtime. Confirm runtime compatibility with the publisher and run `identity` after bootstrap; missing identities are not inferred from the filename.
+
+`Unsupported published manifest or chain identity` after metadata download means the metadata was rejected, not that the archive is missing. Use a source revision supporting the release format. Do not bypass checksum validation or rename JSON fields manually.
+
 ## Publisher procedure
 
 The operator holding the actual file must verify the captured height, clean-shutdown status and database/runtime version. Use a timestamped filename that matches the release metadata. If the archive layout differs, inspect and repackage it in a separate staging area. Renaming an archive alone does not validate its internal layout.

@@ -79,6 +79,41 @@ class RestoreTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "checksum"):
             self.module.verify(self.base)
 
+    def generated_metadata(self, **overrides):
+        archive = self.base / "vlx-archive-height-53696-20261020-154411.tar"
+        if not archive.exists():
+            self.archive().rename(archive)
+        digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+        data = dict(network="ValueX Chain", chainId=90000, height=53696,
+                    format="tar", archive=archive.name,
+                    archiveSizeBytes=archive.stat().st_size, archiveSha256=digest,
+                    contents=["db", "chainData"],
+                    excluded=["config", "plugins", "genesis"])
+        data.update(overrides)
+        raw = json.dumps(data).encode()
+        (self.base / "manifest.json").write_bytes(raw)
+        (self.base / "SHA256SUMS").write_text(
+            f"{digest}  {archive.name}\n{hashlib.sha256(raw).hexdigest()}  manifest.json\n")
+        return archive
+
+    def test_generated_snapshot_verifies_and_restores(self):
+        archive = self.generated_metadata()
+        self.assertEqual(self.module.verify(self.base), archive)
+        data = self.module.manifest(self.base)
+        self.assertEqual(data["type"], "unknown")
+        self.assertIsNone(data["blockchainID"])
+        self.module.extract_safe(archive, self.base / "restored")
+        self.assertEqual((self.base / "restored/db/mainnet/file").read_bytes(), b"test")
+
+    def test_generated_snapshot_rejects_invalid_metadata(self):
+        for field, value in (("chainId", 1), ("height", True),
+                             ("archive", "../outside.tar"), ("format", "gzip"),
+                             ("archiveSha256", None), ("archiveSizeBytes", 0),
+                             ("contents", ["db", "staking"])):
+            self.generated_metadata(**{field: value})
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                self.module.verify(self.base)
+
     def test_manifest_wrong_chain_or_filename_rejected(self):
         _, data = self.metadata()
         for field, value in (("subnetID", "wrong"), ("evmChainID", 1),
