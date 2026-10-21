@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import textwrap
 import urllib.error
 import urllib.request
 
@@ -12,7 +13,8 @@ BID = "zNXAbLSpaqfn3PTLi6ztbeomNtj4wsa7tBxSPyvXYEKstrtsR"
 
 
 def restore_history(target):
-    print("Snapshot history (configured local data directory; not proof of the running node's mount):")
+    print("SNAPSHOT HISTORY")
+    print("Configured local directory; not proof of the running container mount.")
     try:
         if target is None:
             raise ValueError("Data directory unavailable")
@@ -27,9 +29,9 @@ def restore_history(target):
         print(f"  VLX checkpoint: {record['height']} (not the current P-Chain height)")
         print(f"  Archive: {record['file']}")
         print(f"  Completed at: {record['completedAt']}")
-        print("  File restoration is complete; live bootstrap and RPC readiness are checked separately below.")
+        print("  File restoration is complete; live bootstrap and RPC readiness are checked separately.")
     except (OSError, ValueError):
-        print("  Snapshot: UNKNOWN (no readable valid restore record)")
+        print("  Restore record: NOT AVAILABLE")
         print("  Older/manual restores may have no record. This does not mean sync from scratch or restore failure; do not restore again just to create a record.")
     print()
 
@@ -88,101 +90,121 @@ def object_value(value):
     return value if isinstance(value, dict) else {}
 
 
-def explain_stage(health_code, checks, peers, bootstrap, vlx_missing, ready):
+def assess_stage(health_code, checks, peers, bootstrap, vlx_missing, ready):
     """Describe observed readiness, without claiming progress from one sample."""
     if ready:
         stage = "READY"
         detail = "Health, P-Chain, VLX bootstrap and basic RPC checks passed."
     elif health_code == 0:
-        stage = "API UNREACHABLE"
+        stage = "API_UNREACHABLE"
         detail = "Check the container, RPC_URL and startup logs; the node may still be starting."
     elif any(object_value(checks.get(key)).get("error") == "not yet run"
              for key in ("P", "bootstrapped")):
         stage = "INITIALIZING"
         detail = "Health checks have not run yet. Database loading or startup may still be in progress."
     elif peers == 0:
-        stage = "WAITING FOR PEERS"
+        stage = "WAITING_FOR_PEERS"
         detail = "No peer connections reported. Check startup logs, outbound connectivity and firewall settings."
     elif bootstrap.get("P") is False:
-        stage = "P-CHAIN BOOTSTRAP INCOMPLETE"
+        stage = "P_CHAIN_BOOTSTRAPPING"
         detail = "P-Chain is not bootstrapped. This single sample does not prove forward progress; compare fetching/executing block logs over time."
     elif vlx_missing and bootstrap.get("P") is True:
-        stage = "VLX CHAIN UNAVAILABLE"
+        stage = "VLX_CHAIN_UNAVAILABLE"
         detail = "P-Chain is bootstrapped but VLX is not registered yet. Check SUBNET_ID, VM plugin and chain startup logs if this persists."
     elif bootstrap.get("VLX") is False:
-        stage = "VLX BOOTSTRAP INCOMPLETE"
+        stage = "VLX_BOOTSTRAPPING"
         detail = "VLX bootstrap has not completed. Compare VLX bootstrap logs over time to confirm progress."
     elif bootstrap.get("P") is True and bootstrap.get("VLX") is True:
-        stage = "HEALTH OR RPC CHECK FAILED"
+        stage = "HEALTH_OR_RPC_CHECK_FAILED"
         detail = "Both chains are bootstrapped; inspect the health and RPC results above before serving requests."
     else:
-        stage = "READINESS UNCONFIRMED"
+        stage = "READINESS_UNCONFIRMED"
         detail = "Some readiness checks are unavailable. Inspect the responses above and startup logs."
-    print(f"\nStage: {stage}")
-    print(detail)
     if vlx_missing and bootstrap.get("P") is not True:
-        print("VLX is not registered yet; its RPC can return 404 before chain startup. This alone does not show snapshot corruption.")
-    if not ready:
-        print("Progress / ETA: unavailable from these API checks. A restored database may still need initialization and catch-up.")
-        print("Next: sudo bash vlx-node.sh logs --tail 100")
-        print("Compare progress logs and repeat status; if unchanged, inspect errors and peer connectivity. Do not reset or restore the database again based only on this status.")
+        detail += " VLX is not registered yet; RPC may return 404 before chain startup."
+    return stage, detail
 
 
-def status(base):
-    code, body = request(base, "/ext/health")
-    health_code = code
-    healthy = code == 200 and body.get("healthy") is True
-    print(f"Health: {str(healthy).lower()} (HTTP {code})")
-    checks = body.get("checks", {})
-    if not isinstance(checks, dict):
-        checks = {}
+def row(label, result, detail=""):
+    # Keep multiline API errors and terminal control characters out of table cells.
+    clean = lambda value: " ".join("".join(c if c.isprintable() else " " for c in str(value)).split())
+    print(f"{label:<29} {clean(result):<13} {clean(detail)}".rstrip())
+
+
+def status(base, snapshots=False):
+    print("ValueX | Node Diagnostics", flush=True)
+    print("-" * 72)
+    print("Checking health, bootstrap and RPC (15s timeout per request)...", flush=True)
+    health_code, body = request(base, "/ext/health")
+    healthy = health_code == 200 and body.get("healthy") is True
+    checks = object_value(body.get("checks"))
     network = object_value(object_value(checks.get("network")).get("message"))
-    print(f"Connected peers: {network.get('connectedPeers', 'unavailable')}")
+    peers = network.get("connectedPeers", "UNAVAILABLE")
     pcheck = object_value(checks.get("P"))
     percent = object_value(object_value(pcheck.get("message")).get("networking")).get("percentConnected")
-    if isinstance(percent, (int, float)):
-        print(f"P connected stake: {percent * 100:.2f}%")
-    for label in ("P", "bootstrapped"):
-        error = object_value(checks.get(label)).get("error")
-        if error:
-            print(f"{label}: {error}")
-    if not checks and not healthy:
-        print(error_text(code, body))
-    bootstrapped = True
     bootstrap = {}
+    bootstrap_details = {}
     vlx_missing = False
     for label, chain in (("P", "P"), ("VLX", BID)):
         code, result = request(base, "/ext/info", "info.isBootstrapped", {"chain": chain})
         value = object_value(result.get("result")).get("isBootstrapped")
         bootstrap[label] = value if code == 200 and isinstance(value, bool) else None
+        bootstrap_details[label] = "" if bootstrap[label] is not None else error_text(code, result)
         if label == "VLX":
             vlx_missing = "there is no chain with alias/ID" in error_text(code, result)
-        success = code == 200 and value is True
-        bootstrapped = bootstrapped and success
-        detail = str(value).lower() if code == 200 and isinstance(value, bool) else error_text(code, result)
-        print(f"{label} bootstrap: {detail}")
-    chain_ok = False
-    height_ok = False
-    for method in ("eth_chainId", "eth_blockNumber"):
+    rpc_rows = []
+    chain_ok = height_ok = False
+    for method, label in (("eth_chainId", "EVM chain ID"), ("eth_blockNumber", "Latest block")):
         code, result = request(base, f"/ext/bc/{BID}/rpc", method)
         value = result.get("result")
-        if code != 200 or not isinstance(value, str):
-            print(f"{method}: {error_text(code, result)}")
-            continue
-        if method == "eth_chainId":
+        if code != 200 or not isinstance(value, str) or "error" in result:
+            rpc_rows.append((label, "UNAVAILABLE", error_text(code, result)))
+        elif method == "eth_chainId":
             chain_ok = value.lower() == "0x15f90"
-            print(f"EVM Chain ID: {value} (expected 0x15f90 / 90000)")
+            rpc_rows.append((label, "PASS" if chain_ok else "MISMATCH", f"{value} (expected 0x15f90 / 90000)"))
         else:
             try:
                 height = int(value, 16)
                 height_ok = height >= 0
-                print(f"VLX block height: {height} ({value})")
+                rpc_rows.append((label, "PASS" if height_ok else "INVALID", f"{height} ({value})"))
             except ValueError:
-                print("VLX block height: invalid response")
-    ready = healthy and bootstrapped and chain_ok and height_ok
-    explain_stage(health_code, checks, network.get("connectedPeers"), bootstrap, vlx_missing, ready)
-    print("Node ready." if ready else
-          "Node not ready for RPC service (exit status 1).")
+                rpc_rows.append((label, "INVALID", "Invalid block height response"))
+    ready = healthy and all(bootstrap.get(k) is True for k in ("P", "VLX")) and chain_ok and height_ok
+    stage, assessment = assess_stage(health_code, checks, peers, bootstrap, vlx_missing, ready)
+    print(f"\nREADINESS     {'READY' if ready else 'NOT READY'}")
+    print(f"STAGE         {stage}")
+    print(f"ENDPOINT      {base}\n")
+    row("CHECK", "RESULT", "DETAIL")
+    row("Health", "PASS" if healthy else "UNAVAILABLE" if health_code == 0 else "NOT READY", f"HTTP {health_code}" if health_code else error_text(health_code, body))
+    for key, label in (("P", "P-Chain bootstrap"), ("VLX", "VLX bootstrap")):
+        value = bootstrap[key]
+        row(label, "COMPLETE" if value is True else "INCOMPLETE" if value is False else "UNAVAILABLE", bootstrap_details[key])
+    row("Connected peers", peers)
+    row("P-Chain connected stake", f"{percent * 100:.2f}%" if type(percent) in (int, float) else "UNAVAILABLE")
+    for values in rpc_rows:
+        row(*values)
+    for label in ("P", "bootstrapped"):
+        error = object_value(checks.get(label)).get("error")
+        if error:
+            row(f"Health / {label}", "DETAIL", error)
+    if not healthy and not checks and health_code:
+        row("Health response", "DETAIL", error_text(health_code, body))
+    print()
+    if snapshots:
+        restore_history(configured_data_dir())
+    print("ASSESSMENT")
+    print(textwrap.fill(assessment, width=72))
+    if not ready:
+        print("Forward progress and ETA cannot be determined from a single check.")
+    print("\nACTION")
+    if ready:
+        print("Check block advancement over time before accepting RPC traffic.")
+    else:
+        print("Inspect recent logs and compare bootstrap progress:")
+        print("sudo bash vlx-node.sh logs --since 5m --tail 100")
+        print("Do not reset or restore the database based only on this status.")
+    print(f"\nEXIT CODE     {0 if ready else 1} - {'Readiness checks passed' if ready else 'Readiness checks have not passed'}")
+    print("-" * 72)
     return 0 if ready else 1
 
 
@@ -191,9 +213,11 @@ def main(argv=None):
     parser.add_argument("--snapshots", action="store_true",
                         help="Include local snapshot restore history (no archive scan or verification)")
     args = parser.parse_args(argv)
-    if args.snapshots:
-        restore_history(configured_data_dir())
-    return status(os.environ.get("RPC_URL", "http://127.0.0.1:9650"))
+    try:
+        return status(os.environ.get("RPC_URL", "http://127.0.0.1:9650"), snapshots=args.snapshots)
+    except KeyboardInterrupt:
+        print("\nStatus check cancelled. The node was not stopped.", flush=True)
+        return 130
 
 
 if __name__ == "__main__":

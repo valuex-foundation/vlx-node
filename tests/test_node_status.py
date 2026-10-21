@@ -13,15 +13,46 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class StatusTests(unittest.TestCase):
+    def test_cancelled_status_returns_130_without_traceback(self):
+        spec = importlib.util.spec_from_file_location("node_status", ROOT / "scripts/node-status.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        with patch.object(module, "status", side_effect=KeyboardInterrupt), redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(module.main([]), 130)
+        self.assertIn("The node was not stopped", output.getvalue())
+        self.assertNotIn("Traceback", output.getvalue())
+
+    def test_vlx_bootstrap_table_with_optional_snapshot_section(self):
+        spec = importlib.util.spec_from_file_location("node_status", ROOT / "scripts/node-status.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        responses = [(503, {"healthy": False, "checks": {
+            "network": {"message": {"connectedPeers": 578}},
+            "P": {"message": {"networking": {"percentConnected": 0.9563}}}}}),
+            (200, {"result": {"isBootstrapped": True}}),
+            (200, {"result": {"isBootstrapped": False}}),
+            (503, {"error": {"message": "API call rejected because chain is not done bootstrapping"}}),
+            (503, {"error": {"message": "API call rejected because chain is not done bootstrapping"}})]
+        with patch.object(module, "request", side_effect=responses), patch.object(module, "configured_data_dir", return_value=None), redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(module.status("http://localhost", snapshots=True), 1)
+        text = output.getvalue()
+        self.assertIn("STAGE         VLX_BOOTSTRAPPING", text)
+        self.assertRegex(text, r"P-Chain bootstrap\s+COMPLETE")
+        self.assertRegex(text, r"VLX bootstrap\s+INCOMPLETE")
+        self.assertIn("95.63%", text)
+        self.assertLess(text.index("SNAPSHOT HISTORY"), text.index("ASSESSMENT"))
+        self.assertIn("EXIT CODE     1", text)
+
     def test_snapshot_flag_is_optional_and_preserves_readiness_exit_code(self):
         spec = importlib.util.spec_from_file_location("node_status", ROOT / "scripts/node-status.py")
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         for args in ([], ["--snapshots"]):
-            with self.subTest(args=args), patch.object(module, "status", return_value=1), patch.object(module, "configured_data_dir", return_value=Path("data")) as directory, patch.object(module, "restore_history") as history:
+            with self.subTest(args=args), patch.object(module, "status", return_value=1) as status, patch.object(module, "configured_data_dir", return_value=Path("data")) as directory, patch.object(module, "restore_history") as history:
                 self.assertEqual(module.main(args), 1)
-                self.assertEqual(history.call_count, bool(args))
-                self.assertEqual(directory.call_count, bool(args))
+                status.assert_called_once_with(module.os.environ.get("RPC_URL", "http://127.0.0.1:9650"), snapshots=bool(args))
+                history.assert_not_called()
+                directory.assert_not_called()
 
     def test_restore_history_does_not_guess_for_older_restores(self):
         spec = importlib.util.spec_from_file_location("node_status", ROOT / "scripts/node-status.py")
@@ -31,7 +62,7 @@ class StatusTests(unittest.TestCase):
             target = Path(tmp)
             with redirect_stdout(io.StringIO()) as output:
                 module.restore_history(target)
-            self.assertIn("UNKNOWN", output.getvalue())
+            self.assertIn("NOT AVAILABLE", output.getvalue())
             (target / ".vlx-restore.json").write_text(json.dumps({
                 "state": "restored", "height": 53696, "file": "snapshot.tar",
                 "completedAt": "2026-10-21T00:00:00+00:00"}))
@@ -47,9 +78,9 @@ class StatusTests(unittest.TestCase):
         spec.loader.exec_module(module)
         cases = [
             (0, False, "not yet run", "INITIALIZING", "Health checks have not run"),
-            (0, False, "not connected to enough stake", "WAITING FOR PEERS", "firewall"),
-            (369, False, "not connected to enough stake", "P-CHAIN BOOTSTRAP INCOMPLETE", "does not prove forward progress"),
-            (369, True, None, "VLX CHAIN UNAVAILABLE", "SUBNET_ID"),
+            (0, False, "not connected to enough stake", "WAITING_FOR_PEERS", "firewall"),
+            (369, False, "not connected to enough stake", "P_CHAIN_BOOTSTRAPPING", "does not prove forward progress"),
+            (369, True, None, "VLX_CHAIN_UNAVAILABLE", "SUBNET_ID"),
         ]
         for peers, p_ready, error, stage, hint in cases:
             health = {"healthy": False, "checks": {
@@ -60,9 +91,9 @@ class StatusTests(unittest.TestCase):
                          (404, {}), (404, {})]
             with self.subTest(stage=stage), patch.object(module, "request", side_effect=responses), redirect_stdout(io.StringIO()) as output:
                 self.assertEqual(module.status("http://localhost"), 1)
-            self.assertIn("Stage: " + stage, output.getvalue())
-            self.assertIn(hint, output.getvalue())
-            self.assertIn("bash vlx-node.sh logs --tail 100", output.getvalue())
+            self.assertIn("STAGE         " + stage, output.getvalue())
+            self.assertIn(hint, " ".join(output.getvalue().split()))
+            self.assertIn("bash vlx-node.sh logs --since 5m --tail 100", output.getvalue())
 
     def test_ready_node_returns_success(self):
         spec = importlib.util.spec_from_file_location("node_status", ROOT / "scripts/node-status.py")
@@ -94,8 +125,10 @@ class StatusTests(unittest.TestCase):
             with redirect_stdout(output):
                 code = module.status(f"http://127.0.0.1:{server.server_port}")
             self.assertEqual(code, 0)
-            self.assertIn("VLX block height: 53696", output.getvalue())
-            self.assertIn("Node ready.", output.getvalue())
+            self.assertIn("53696 (0xd1c0)", output.getvalue())
+            self.assertIn("READINESS     READY", output.getvalue())
+            self.assertIn("ValueX | Node Diagnostics", output.getvalue())
+            self.assertNotIn("SNAPSHOT HISTORY", output.getvalue())
         finally:
             server.shutdown()
             server.server_close()
@@ -144,9 +177,9 @@ class StatusTests(unittest.TestCase):
             text = output.getvalue()
             self.assertIn("32.00%", text)
             self.assertIn("369", text)
-            self.assertIn("P bootstrap: false", text)
-            self.assertIn("VLX bootstrap: false", text)
-            self.assertIn("not ready", text)
+            self.assertRegex(text, r"P-Chain bootstrap\s+INCOMPLETE")
+            self.assertRegex(text, r"VLX bootstrap\s+INCOMPLETE")
+            self.assertIn("READINESS     NOT READY", text)
             self.assertEqual([x["params"]["chain"] for x in seen
                               if x["method"] == "info.isBootstrapped"], ["P", module.BID])
         finally:
@@ -164,5 +197,5 @@ class StatusTests(unittest.TestCase):
             (200, {"result": None}), (200, {"result": None})]
         with patch.object(module, "request", side_effect=responses), redirect_stdout(io.StringIO()) as output:
             self.assertEqual(module.status("http://localhost"), 1)
-        self.assertIn("VLX bootstrap:", output.getvalue())
-        self.assertIn("Node not ready", output.getvalue())
+        self.assertRegex(output.getvalue(), r"VLX bootstrap\s+UNAVAILABLE")
+        self.assertIn("READINESS     NOT READY", output.getvalue())

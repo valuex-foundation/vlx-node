@@ -78,7 +78,7 @@ The destination must be absent or empty. Stop other AvalancheGo nodes and automa
 
 The public restore command rechecks the cached archive checksum, validates archive entries, extracts `db` and `chainData` into staging, then moves them into the destination. This step can take substantial disk IO. Wait for `Restored to ...` and a successful command exit. It does not start Docker automatically. See [snapshot format and safety checks](snapshot-download-and-restore.md).
 
-Successful restores also create `.vlx-restore.json` in the destination, recording the VLX checkpoint, archive checksum and completion time. `status --snapshots` displays this local history for the data directory resolved from Compose configuration. It is not proof that a running container uses that directory, and the checkpoint is not the current P-Chain height. Older or manual restores without a record display `UNKNOWN`; do not repeat restoration merely to create this record. Live health, bootstrap and RPC checks remain separate from file restoration.
+Successful restores also create `.vlx-restore.json` in the destination, recording the VLX checkpoint, archive checksum and completion time. `status --snapshots` displays this local history for the data directory resolved from Compose configuration. It is not proof that a running container uses that directory, and the checkpoint is not the current P-Chain height. Older or manual restores without a record display `NOT AVAILABLE`; do not repeat restoration merely to create this record. Live health, bootstrap and RPC checks remain separate from file restoration.
 
 ## 5. Start and verify
 
@@ -99,7 +99,7 @@ sudo bash vlx-node.sh identity
 
 Require healthy status, both P-Chain and VLX bootstrap completion, matching network identity and EVM Chain ID `90000`. Initial DB loading may precede API availability. If startup fails, inspect logs rather than repeatedly restoring or deleting data. A checksum success alone is not node readiness.
 
-`status` prints an observed readiness stage. `INITIALIZING` means health checks have not run yet; `WAITING FOR PEERS` means no peers are reported. `P-CHAIN BOOTSTRAP INCOMPLETE` and `VLX BOOTSTRAP INCOMPLETE` identify the unfinished chain, but do not prove that synchronization is advancing. Before VLX chain registration, its RPC may return 404. If P-Chain is already bootstrapped and VLX remains unavailable, check the Subnet ID, VM plugin and startup errors.
+`status` prints a `ValueX | Node Diagnostics` report with readiness, stage, a check table, assessment and next action. `--snapshots` adds a separate local restore-history section. A waiting message appears before API checks; Ctrl+C cancels the status command with exit code 130 without stopping the node. The report prints an observed readiness stage. `INITIALIZING` means health checks have not run yet; `WAITING_FOR_PEERS` means no peers are reported. `P_CHAIN_BOOTSTRAPPING` and `VLX_BOOTSTRAPPING` identify the unfinished chain, but do not prove that synchronization is advancing. Before VLX chain registration, its RPC may return 404. If P-Chain is already bootstrapped and VLX remains unavailable, check the Subnet ID, VM plugin and startup errors.
 
 Compare `sudo bash vlx-node.sh logs --tail 100` output over time for fetching/executing block progress and errors. The API checks do not provide a reliable percentage or ETA. `status` continues to return exit code 1 until all readiness checks pass, including during normal initialization; do not use that exit code alone to trigger a restart or another restoration.
 
