@@ -12,6 +12,29 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class StatusTests(unittest.TestCase):
+    def test_stage_explanations_keep_unready_exit_status(self):
+        spec = importlib.util.spec_from_file_location("node_status", ROOT / "scripts/node-status.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        cases = [
+            (0, False, "not yet run", "INITIALIZING", "Health checks have not run"),
+            (0, False, "not connected to enough stake", "WAITING FOR PEERS", "firewall"),
+            (369, False, "not connected to enough stake", "P-CHAIN BOOTSTRAP INCOMPLETE", "does not prove forward progress"),
+            (369, True, None, "VLX CHAIN UNAVAILABLE", "SUBNET_ID"),
+        ]
+        for peers, p_ready, error, stage, hint in cases:
+            health = {"healthy": False, "checks": {
+                "network": {"message": {"connectedPeers": peers}},
+                "P": {"error": error}}}
+            responses = [(503, health), (200, {"result": {"isBootstrapped": p_ready}}),
+                         (200, {"error": {"message": "there is no chain with alias/ID 'test'"}}),
+                         (404, {}), (404, {})]
+            with self.subTest(stage=stage), patch.object(module, "request", side_effect=responses), redirect_stdout(io.StringIO()) as output:
+                self.assertEqual(module.status("http://localhost"), 1)
+            self.assertIn("Stage: " + stage, output.getvalue())
+            self.assertIn(hint, output.getvalue())
+            self.assertIn("bash vlx-node.sh logs --tail 100", output.getvalue())
+
     def test_ready_node_returns_success(self):
         spec = importlib.util.spec_from_file_location("node_status", ROOT / "scripts/node-status.py")
         module = importlib.util.module_from_spec(spec)

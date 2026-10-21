@@ -95,6 +95,10 @@ sudo bash vlx-node.sh identity
 
 Require healthy status, both P-Chain and VLX bootstrap completion, matching network identity and EVM Chain ID `90000`. Initial DB loading may precede API availability. If startup fails, inspect logs rather than repeatedly restoring or deleting data. A checksum success alone is not node readiness.
 
+`status` prints an observed readiness stage. `INITIALIZING` means health checks have not run yet; `WAITING FOR PEERS` means no peers are reported. `P-CHAIN BOOTSTRAP INCOMPLETE` and `VLX BOOTSTRAP INCOMPLETE` identify the unfinished chain, but do not prove that synchronization is advancing. Before VLX chain registration, its RPC may return 404. If P-Chain is already bootstrapped and VLX remains unavailable, check the Subnet ID, VM plugin and startup errors.
+
+Compare `sudo bash vlx-node.sh logs --tail 100` output over time for fetching/executing block progress and errors. The API checks do not provide a reliable percentage or ETA. `status` continues to return exit code 1 until all readiness checks pass, including during normal initialization; do not use that exit code alone to trigger a restart or another restoration.
+
 ## 6. Test the local RPC gateway
 
 The standard deployment uses **9652**, not the alternate ports used by isolated test deployments. Run these POST requests on the node host:
