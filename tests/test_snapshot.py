@@ -38,6 +38,16 @@ class RestoreTests(unittest.TestCase):
         self.module.extract_safe(self.archive(), dest)
         self.assertEqual((dest / "db/mainnet/file").read_bytes(), b"test")
 
+    def test_restore_records_checkpoint_only_after_safe_extraction(self):
+        dest = self.base / "data"
+        metadata = {"height": 53696, "file": "snapshot.tar", "sha256": "a" * 64}
+        self.module.extract_safe(self.archive(), dest, restore_metadata=metadata)
+        record = json.loads((dest / ".vlx-restore.json").read_text())
+        self.assertEqual(record["height"], 53696)
+        self.assertEqual(record["state"], "restored")
+        self.assertIn("completedAt", record)
+
+
     def test_existing_data_untouched(self):
         dest = self.base / "data"
         dest.mkdir()

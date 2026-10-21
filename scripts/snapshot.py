@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Manifest v1: uncompressed, immutable height-named snapshots."""
 import argparse
+from datetime import datetime, timezone
 import hashlib
 import json
 import os
@@ -122,7 +123,7 @@ def empty_target(target):
         raise ValueError("Target must be an empty directory (existing DB/logs are never overwritten)")
 
 
-def extract_safe(archive, target, allowed_extra_roots=None):
+def extract_safe(archive, target, allowed_extra_roots=None, restore_metadata=None):
     target = Path(target)
     empty_target(target)
     with tarfile.open(archive, "r:") as source:
@@ -168,6 +169,10 @@ def extract_safe(archive, target, allowed_extra_roots=None):
                     path.parent.mkdir(parents=True, exist_ok=True)
                     with source.extractfile(member) as src, path.open("xb") as dst:
                         shutil.copyfileobj(src, dst)
+            if restore_metadata is not None:
+                record = {key: restore_metadata[key] for key in ("height", "file", "sha256")}
+                record.update(state="restored", completedAt=datetime.now(timezone.utc).isoformat())
+                (stage / ".vlx-restore.json").write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
             empty_target(target)
             if target.exists():
                 target.rmdir()  # Empty only; never recursive removal of user data.
@@ -270,7 +275,8 @@ def main():
         with (target.parent / f".{target.name}.restore.lock").open("w") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
             assert_stopped(target, args.allow_independent_containers)
-            extract_safe(archive, target, manifest(cache).get("allowedExtraRoots"))
+            metadata = manifest(cache)
+            extract_safe(archive, target, metadata.get("allowedExtraRoots"), metadata)
         print(f"Restored to {target}; configure DATA_DIR before starting.")
 
 

@@ -3,6 +3,7 @@ import io
 import json
 from pathlib import Path
 import threading
+import tempfile
 import unittest
 from contextlib import redirect_stdout
 from unittest.mock import patch
@@ -12,6 +13,24 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class StatusTests(unittest.TestCase):
+    def test_restore_history_does_not_guess_for_older_restores(self):
+        spec = importlib.util.spec_from_file_location("node_status", ROOT / "scripts/node-status.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp)
+            with redirect_stdout(io.StringIO()) as output:
+                module.restore_history(target)
+            self.assertIn("UNKNOWN", output.getvalue())
+            (target / ".vlx-restore.json").write_text(json.dumps({
+                "state": "restored", "height": 53696, "file": "snapshot.tar",
+                "completedAt": "2026-10-21T00:00:00+00:00"}))
+            with redirect_stdout(io.StringIO()) as output:
+                module.restore_history(target)
+            self.assertIn("53696", output.getvalue())
+            self.assertIn("RESTORE COMPLETED", output.getvalue())
+            self.assertIn("not the current P-Chain height", output.getvalue())
+
     def test_stage_explanations_keep_unready_exit_status(self):
         spec = importlib.util.spec_from_file_location("node_status", ROOT / "scripts/node-status.py")
         module = importlib.util.module_from_spec(spec)

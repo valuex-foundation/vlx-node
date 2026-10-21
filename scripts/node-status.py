@@ -2,10 +2,56 @@
 """Report bootstrap progress even when health returns HTTP 503."""
 import json
 import os
+from pathlib import Path
+import subprocess
 import urllib.error
 import urllib.request
 
 BID = "zNXAbLSpaqfn3PTLi6ztbeomNtj4wsa7tBxSPyvXYEKstrtsR"
+
+
+def restore_history(target):
+    print("Snapshot history (configured local data directory; not proof of the running node's mount):")
+    try:
+        if target is None:
+            raise ValueError("Data directory unavailable")
+        raw = (target / ".vlx-restore.json").read_text(encoding="utf-8")
+        record = json.loads(raw)
+        if (not isinstance(record, dict) or record.get("state") != "restored"
+                or type(record.get("height")) is not int or record["height"] < 0
+                or not isinstance(record.get("file"), str)
+                or not isinstance(record.get("completedAt"), str)):
+            raise ValueError("Invalid restore record")
+        print("  Snapshot: RESTORE COMPLETED (local restore record)")
+        print(f"  VLX checkpoint: {record['height']} (not the current P-Chain height)")
+        print(f"  Archive: {record['file']}")
+        print(f"  Completed at: {record['completedAt']}")
+        print("  File restoration is complete; live bootstrap and RPC readiness are checked separately below.")
+    except (OSError, ValueError):
+        print("  Snapshot: UNKNOWN (no readable valid restore record)")
+        print("  Older/manual restores may have no record. This does not mean sync from scratch or restore failure; do not restore again just to create a record.")
+    print()
+
+
+def configured_data_dir():
+    root = Path(__file__).resolve().parents[1]
+    role = os.environ.get("VLX_ROLE", "rpc")
+    if role not in ("rpc", "validator"):
+        return None
+    command = ["docker", "compose", "--project-directory", str(root),
+               "-f", str(root / "docker-compose.yml"),
+               "-f", str(root / "deploy" / f"compose.{role}.yml")]
+    if os.environ.get("VLX_MONITORING") == "1":
+        command += ["-f", str(root / "deploy/compose.monitoring.yml")]
+    try:
+        config = json.loads(subprocess.check_output(command + ["config", "--format", "json"],
+                           stderr=subprocess.DEVNULL, text=True, timeout=15))
+        for mount in config["services"]["vlx-node"]["volumes"]:
+            if mount.get("target") == "/data/db" and mount.get("type") == "bind":
+                return Path(mount["source"]).parent
+    except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError):
+        pass
+    return None
 
 
 def request(base, path, method=None, params=None):
@@ -140,4 +186,5 @@ def status(base):
 
 
 if __name__ == "__main__":
+    restore_history(configured_data_dir())
     raise SystemExit(status(os.environ.get("RPC_URL", "http://127.0.0.1:9650")))
