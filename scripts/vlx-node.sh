@@ -21,7 +21,7 @@ case "$cmd" in
       config) "${compose[@]}" config "$@";;
     esac ;;
   download|verify|restore) exec python3 "$ROOT/scripts/snapshot.py" "$cmd" "$@" ;;
-  status) exec python3 "$ROOT/scripts/node-status.py" ;;
+  status) exec python3 "$ROOT/scripts/node-status.py" "$@" ;;
   identity|node-id)
     base=${RPC_URL:-http://127.0.0.1:9650}
     bid=zNXAbLSpaqfn3PTLi6ztbeomNtj4wsa7tBxSPyvXYEKstrtsR
@@ -41,6 +41,7 @@ case "$cmd" in
     fi ;;
   help|-h|--help)
     echo 'Usage: bash vlx-node.sh init|build|start|stop|logs|config|status|identity|node-id'
+    echo '       bash vlx-node.sh status [--snapshots]'
     echo '       bash vlx-node.sh download --url https://snapshot.valuex-foundation.com/vlx-l1-chain90000-height-53696-20261020-122850 --cache DIR'
     echo '       bash vlx-node.sh verify --cache DIR'
     echo '       bash vlx-node.sh restore --cache DIR --datadir DIR --confirm-stopped'

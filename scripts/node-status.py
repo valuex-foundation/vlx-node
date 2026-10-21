@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Report bootstrap progress even when health returns HTTP 503."""
+import argparse
 import json
 import os
 from pathlib import Path
@@ -185,6 +186,15 @@ def status(base):
     return 0 if ready else 1
 
 
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--snapshots", action="store_true",
+                        help="Include local snapshot restore history (no archive scan or verification)")
+    args = parser.parse_args(argv)
+    if args.snapshots:
+        restore_history(configured_data_dir())
+    return status(os.environ.get("RPC_URL", "http://127.0.0.1:9650"))
+
+
 if __name__ == "__main__":
-    restore_history(configured_data_dir())
-    raise SystemExit(status(os.environ.get("RPC_URL", "http://127.0.0.1:9650")))
+    raise SystemExit(main())

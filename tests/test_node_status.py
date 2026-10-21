@@ -13,6 +13,16 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class StatusTests(unittest.TestCase):
+    def test_snapshot_flag_is_optional_and_preserves_readiness_exit_code(self):
+        spec = importlib.util.spec_from_file_location("node_status", ROOT / "scripts/node-status.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        for args in ([], ["--snapshots"]):
+            with self.subTest(args=args), patch.object(module, "status", return_value=1), patch.object(module, "configured_data_dir", return_value=Path("data")) as directory, patch.object(module, "restore_history") as history:
+                self.assertEqual(module.main(args), 1)
+                self.assertEqual(history.call_count, bool(args))
+                self.assertEqual(directory.call_count, bool(args))
+
     def test_restore_history_does_not_guess_for_older_restores(self):
         spec = importlib.util.spec_from_file_location("node_status", ROOT / "scripts/node-status.py")
         module = importlib.util.module_from_spec(spec)

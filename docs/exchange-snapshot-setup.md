@@ -78,7 +78,7 @@ The destination must be absent or empty. Stop other AvalancheGo nodes and automa
 
 The public restore command rechecks the cached archive checksum, validates archive entries, extracts `db` and `chainData` into staging, then moves them into the destination. This step can take substantial disk IO. Wait for `Restored to ...` and a successful command exit. It does not start Docker automatically. See [snapshot format and safety checks](snapshot-download-and-restore.md).
 
-Successful restores also create `.vlx-restore.json` in the destination, recording the VLX checkpoint, archive checksum and completion time. `status` displays this local history for the data directory resolved from Compose configuration. It is not proof that a running container uses that directory, and the checkpoint is not the current P-Chain height. Older or manual restores without a record display `UNKNOWN`; do not repeat restoration merely to create this record. Live health, bootstrap and RPC checks remain separate from file restoration.
+Successful restores also create `.vlx-restore.json` in the destination, recording the VLX checkpoint, archive checksum and completion time. `status --snapshots` displays this local history for the data directory resolved from Compose configuration. It is not proof that a running container uses that directory, and the checkpoint is not the current P-Chain height. Older or manual restores without a record display `UNKNOWN`; do not repeat restoration merely to create this record. Live health, bootstrap and RPC checks remain separate from file restoration.
 
 ## 5. Start and verify
 
@@ -92,6 +92,8 @@ In another terminal in the same project directory:
 
 ```bash
 sudo bash vlx-node.sh status
+# Include local snapshot restore history (no TAR scan or checksum recheck):
+sudo bash vlx-node.sh status --snapshots
 sudo bash vlx-node.sh identity
 ```
 
